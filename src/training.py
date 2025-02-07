@@ -1,107 +1,141 @@
 import numpy as np 
 import os 
-from network import HopfieldNetwork
 import matplotlib.pyplot as plt
-
+from network import HopfieldNetwork
 
 def add_noise_to_pattern(pattern, noise_level=0.05):
-    """
-    Add noise to a pattern by flipping a percentage of bits.
-    :param pattern: The original binary pattern (+1, -1).
-    :param noise_level: Fraction of bits to flip (0 to 1).
-    :return: Noised pattern.
-    """
+    """Flip a fraction of bits in the pattern to add noise."""
     noisy_pattern = pattern.copy()
     num_flips = int(len(pattern) * noise_level)
     flip_indices = np.random.choice(len(pattern), size=num_flips, replace=False)
     noisy_pattern[flip_indices] *= -1 
     return noisy_pattern
 
-def create_plot(pattern, name): 
-    # Reshape patterns to 12x12 for visualization
-    pattern_reshaped = pattern.reshape(2, 12)
-    # Create the plot
-    plt.figure(figsize=(6, 2))
-    plt.imshow(pattern_reshaped, cmap='gray', vmin=-1, vmax=1, aspect='equal')
-    plt.title("Pattern")
-    plt.axis('off')
-
-    # Save the plot to a folder
-    output_folder = "./plots"
-    os.makedirs(output_folder, exist_ok=True)
-    output_path = os.path.join(output_folder, name if name.endswith(".png") else f"{name}.png")
-    plt.savefig(output_path)
-    plt.close()
-
-    print(f"Plot saved to {output_path}")
-
-def initialize_binary_array(size=12):
-    """
-    Initialize a NumPy array of given size with binary values (1, -1),
-    each having a probability of 0.5.
-    :param size: Size of the array (default: 12).
-    :return: A NumPy array of shape (size,) with values 1 and -1.
-    """
+def initialize_binary_array(size):
+    """Generate a random binary pattern with values (+1, -1)."""
     return np.random.choice([1, -1], size=size, p=[0.5, 0.5])
 
+def generate_patterns(p, network_size): 
+    """Generate x, y, and z patterns with the specified transformation."""
+    x_patterns = [initialize_binary_array(network_size) for _ in range(p)]
+    y_patterns = [initialize_binary_array(network_size) for _ in range(p)]
+    z_patterns = [np.sign(x + y + (x * y)) for x, y in zip(x_patterns, y_patterns)]
+    return x_patterns, y_patterns, z_patterns
+
+def calculate_energy(pattern, weights):
+    """Compute the Hopfield network energy for a given pattern."""
+    return -0.5 * np.dot(pattern.T, np.dot(weights, pattern))
+
+def test_recall(patterns, net, noise_level, max_steps): 
+    """Test whether the Hopfield network successfully recalls stored patterns."""
+    for original_pattern in patterns:
+        noisy_pattern = add_noise_to_pattern(original_pattern, noise_level)
+        recalled_pattern, _ = net.recall(noisy_pattern, original_pattern, max_steps)
+        if not np.array_equal(recalled_pattern, original_pattern):
+            return False  # Failure in recall
+    return True  # All patterns recalled successfully
+
+def compute_average_overlap(x_patterns, y_patterns, z_patterns):
+    """Compute the average overlap between x, y, and z patterns."""
+    p = len(x_patterns)
+    overlap_xy = np.mean([np.sum(x == y) / len(x) for x, y in zip(x_patterns, y_patterns)])
+    overlap_xz = np.mean([np.sum(x == z) / len(x) for x, z in zip(x_patterns, z_patterns)])
+    overlap_yz = np.mean([np.sum(y == z) / len(y) for y, z in zip(y_patterns, z_patterns)])
+    return overlap_xy, overlap_xz, overlap_yz
 
 def determine_memory_capacity(network_size, max_patterns, trials, noise_level, max_steps):
     """
-    Determine the memory capacity of a Hopfield network.
-    :param network_size: Number of neurons in the Hopfield network.
-    :param max_patterns: Maximum number of pattern sets (p) to test.
-    :param trials: Number of trials for each value of p.
-    :param noise_level: Noise level to apply to patterns.
-    :param max_steps: Maximum number of steps for recall convergence.
-    :return: Dictionary mapping p to success rates.
+    Determine the memory capacity of a Hopfield network and record success rates and energy values.
     """
     success_rates = {}
+    energy_dict = {"x": [], "y": [], "z": []}
+    overlap_dict = {"xy": [], "xz": [], "yz": []}
 
-    for p in range(0, max_patterns):
+    for p in range(1, max_patterns + 1):
         success_count = 0
+        total_energy_x = total_energy_y = total_energy_z = 0
+        total_overlap_xy = total_overlap_xz = total_overlap_yz = 0
 
         for _ in range(trials):
-            # Generate p sets of patterns
-            x_patterns = [initialize_binary_array(network_size) for _ in range(p+1)]
-            y_patterns = [initialize_binary_array(network_size) for _ in range(p+1)]
-            z_patterns = [np.sign(x + y + 1 * (x * y)) for x, y in zip(x_patterns, y_patterns)]
-            
-            # vertically stack all patterns 
-            all_patterns = np.vstack(x_patterns + y_patterns + z_patterns)  
+            x_patterns, y_patterns, z_patterns = generate_patterns(p, network_size)
+            overlap_xy, overlap_xz, overlap_yz = compute_average_overlap(x_patterns, y_patterns, z_patterns)
+
+            total_overlap_xy += overlap_xy
+            total_overlap_xz += overlap_xz
+            total_overlap_yz += overlap_yz
+
+            # Stack all patterns for training
+            all_patterns = np.vstack(x_patterns + y_patterns + z_patterns)
 
             # Train the Hopfield network
             net = HopfieldNetwork(size=network_size)
             net.train(all_patterns)
 
-            # Test recall for each pattern
-            recall_success = True
-            for original_pattern in z_patterns:
-                noisy_pattern = add_noise_to_pattern(original_pattern, noise_level)
-                recalled_pattern, _ = net.recall(noisy_pattern, original_pattern, max_steps)
+            # Accumulate energy values
+            total_energy_x += sum(calculate_energy(x, net.weights) for x in x_patterns)
+            total_energy_y += sum(calculate_energy(y, net.weights) for y in y_patterns)
+            total_energy_z += sum(calculate_energy(z, net.weights) for z in z_patterns)
 
-                if not np.array_equal(recalled_pattern, original_pattern):
-                    recall_success = False
-                    break  
-
-            if recall_success:
+            if test_recall(z_patterns, net, noise_level, max_steps):
                 success_count += 1
 
+        # Compute averages
         success_rates[p] = success_count / trials
+        num_patterns_total = p * trials
+        energy_dict["x"].append(total_energy_x / num_patterns_total)
+        energy_dict["y"].append(total_energy_y / num_patterns_total)
+        energy_dict["z"].append(total_energy_z / num_patterns_total)
+        overlap_dict["xy"].append(total_overlap_xy / trials)
+        overlap_dict["xz"].append(total_overlap_xz / trials)
+        overlap_dict["yz"].append(total_overlap_yz / trials)
 
-    return success_rates
 
+    return success_rates, energy_dict, overlap_dict
 
+def plot_memory_capacity(success_rates, path="plots/memory_capacity.png"): 
+    """Plot and save the memory capacity success rates."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(success_rates.keys(), success_rates.values(), marker='o')
+    plt.xlabel('Number of Pattern Sets (p)')
+    plt.ylabel('Success Rate')
+    plt.title('Memory Capacity for Patterns')
+    plt.grid(True)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_energy_values(energy_dict, max_patterns, path="plots/energy_values.png"): 
+    """Plot and save the energy values for different pattern types."""
+    plt.figure(figsize=(10, 6))
+    for label, y_values in energy_dict.items():
+        plt.plot(range(1, max_patterns + 1), y_values, label=label)
+    plt.xlabel("Number of Pattern Sets (p)")
+    plt.ylabel("Energy Values")
+    plt.title("Energy values for patterns")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_overlaps(overlap_dict, max_patterns, path="plots/overlaps.png"): 
+    plt.figure(figsize=(10, 6))
+    for label, y_values in overlap_dict.items():
+        plt.plot(range(1, max_patterns + 1), y_values, label=label)
+    plt.xlabel("Number of Pattern Sets (p)")
+    plt.ylabel("Energy Values")
+    plt.title("Energy values for patterns")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
 # Example usage
-network_size = 100  # Size of the Hopfield network
+network_size = 100  # Number of neurons in the Hopfield network
 max_patterns = 14   # Maximum number of pattern sets to test
-trials = 10         # Number of trials for each p
+trials = 10         # Number of trials per pattern set
 noise_level = 0.2   # Noise level in patterns
-max_steps = 10000   # Maximum number of update steps of the network
+max_steps = 10000   # Max update steps for recall
 
-success_rates = determine_memory_capacity(network_size, max_patterns, trials, noise_level, max_steps)
-
-print(success_rates)
-
-
-
-
+success_rates, energy_dict, overlap_dict = determine_memory_capacity(network_size, max_patterns, trials, noise_level, max_steps)
+plot_memory_capacity(success_rates)
+plot_energy_values(energy_dict, max_patterns)
+plot_overlaps(overlap_dict, max_patterns)
