@@ -122,8 +122,8 @@ def plot_overlaps(overlap_dict, max_patterns, path="plots/overlaps.png"):
     for label, y_values in overlap_dict.items():
         plt.plot(range(1, max_patterns + 1), y_values, label=label)
     plt.xlabel("Number of Pattern Sets (p)")
-    plt.ylabel("Energy Values")
-    plt.title("Energy values for patterns")
+    plt.ylabel("Overlap")
+    plt.title("Overlap between patterns")
     plt.legend()
     plt.grid(True)
     plt.savefig(path, dpi=300, bbox_inches='tight')
