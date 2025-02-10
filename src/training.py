@@ -38,9 +38,9 @@ def test_recall(patterns, net, noise_level, max_steps):
 def compute_average_overlap(x_patterns, y_patterns, z_patterns):
     """Compute the average overlap between x, y, and z patterns."""
     p = len(x_patterns)
-    overlap_xy = np.mean([np.sum(x == y) / len(x) for x, y in zip(x_patterns, y_patterns)])
-    overlap_xz = np.mean([np.sum(x == z) / len(x) for x, z in zip(x_patterns, z_patterns)])
-    overlap_yz = np.mean([np.sum(y == z) / len(y) for y, z in zip(y_patterns, z_patterns)])
+    overlap_xy = np.mean([np.sum(x == y) for x, y in zip(x_patterns, y_patterns)])
+    overlap_xz = np.mean([np.sum(x == z) for x, z in zip(x_patterns, z_patterns)])
+    overlap_yz = np.mean([np.sum(y == z) for y, z in zip(y_patterns, z_patterns)])
     return overlap_xy, overlap_xz, overlap_yz
 
 def determine_memory_capacity(network_size, max_patterns, trials, noise_level, max_steps):
