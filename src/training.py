@@ -71,6 +71,10 @@ def determine_memory_capacity(network_size, max_patterns, trials, noise_level, m
             net = HopfieldNetwork(size=network_size)
             net.train(all_patterns)
 
+            # Plot the energies of inscribed vs. attractor for z-patterns (just one example)
+            plot_inscribed_vs_attractor_energies(z_patterns, x_patterns, y_patterns, net, noise_level, max_steps)
+
+
             # Accumulate energy values
             total_energy_x += sum(calculate_energy(x, net.weights) for x in x_patterns)
             total_energy_y += sum(calculate_energy(y, net.weights) for y in y_patterns)
@@ -81,7 +85,7 @@ def determine_memory_capacity(network_size, max_patterns, trials, noise_level, m
 
         # Compute averages
         success_rates[p] = success_count / trials
-        num_patterns_total = p * trials
+        num_patterns_total = 3 * p * trials
         energy_dict["x"].append(total_energy_x / num_patterns_total)
         energy_dict["y"].append(total_energy_y / num_patterns_total)
         energy_dict["z"].append(total_energy_z / num_patterns_total)
@@ -128,10 +132,83 @@ def plot_overlaps(overlap_dict, max_patterns, path="plots/overlaps.png"):
     plt.grid(True)
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
+
+def plot_inscribed_vs_attractor_energies(z_patterns, x_patterns, y_patterns, net, noise_level, max_steps, path="plots/energy_per_pattern.png"):
+    """
+    For each pattern triplet (Z, X, Y):
+      - Compute the energy of the stored (inscribed) pattern (blue dot for each type).
+      - Add noise and recall it, then compute the energy of the attractor (red cross for each type).
+      - Plot all energies on the same x-axis index with no lines connecting them.
+    """
+    # Initialize lists for stored and attractor energies for each pattern type
+    energies_stored_z = []
+    energies_attractor_z = []
+    energies_stored_x = []
+    energies_attractor_x = []
+    energies_stored_y = []
+    energies_attractor_y = []
+
+    # Discrete x-axis indices for each pattern triplet
+    pattern_indices = range(len(z_patterns))
+
+    for i in pattern_indices:
+        # Get each pattern from the triplet
+        stored_z = z_patterns[i]
+        stored_x = x_patterns[i]
+        stored_y = y_patterns[i]
+
+        # Compute energy of the inscribed (stored) patterns
+        E_stored_z = calculate_energy(stored_z, net.weights)
+        E_stored_x = calculate_energy(stored_x, net.weights)
+        E_stored_y = calculate_energy(stored_y, net.weights)
+
+        # Add noise and recall each pattern
+        noisy_z = add_noise_to_pattern(stored_z, noise_level)
+        recalled_z, _ = net.recall(noisy_z, stored_z, max_steps)
+        noisy_x = add_noise_to_pattern(stored_x, noise_level)
+        recalled_x, _ = net.recall(noisy_x, stored_x, max_steps)
+        noisy_y = add_noise_to_pattern(stored_y, noise_level)
+        recalled_y, _ = net.recall(noisy_y, stored_y, max_steps)
+
+        # Compute energy of the attractors
+        E_attractor_z = calculate_energy(recalled_z, net.weights)
+        E_attractor_x = calculate_energy(recalled_x, net.weights)
+        E_attractor_y = calculate_energy(recalled_y, net.weights)
+
+        # Append the energies to the lists
+        energies_stored_z.append(E_stored_z)
+        energies_attractor_z.append(E_attractor_z)
+        energies_stored_x.append(E_stored_x)
+        energies_attractor_x.append(E_attractor_x)
+        energies_stored_y.append(E_stored_y)
+        energies_attractor_y.append(E_attractor_y)
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+
+    # Plot stored (inscribed) energies for each pattern type (blue dots)
+    plt.scatter(pattern_indices, energies_stored_z, color='blue', marker='o', label='Stored Z-Patterns')
+    plt.scatter(pattern_indices, energies_stored_x, color='cyan', marker='o', label='Stored X-Patterns')
+    plt.scatter(pattern_indices, energies_stored_y, color='magenta', marker='o', label='Stored Y-Patterns')
+
+    # Plot attractor energies for each pattern type (red crosses)
+    plt.scatter(pattern_indices, energies_attractor_z, color='red', marker='x', label='Attractor Z-Patterns')
+    plt.scatter(pattern_indices, energies_attractor_x, color='orange', marker='x', label='Attractor X-Patterns')
+    plt.scatter(pattern_indices, energies_attractor_y, color='green', marker='x', label='Attractor Y-Patterns')
+
+    plt.xlabel("Pattern Index")
+    plt.ylabel("Energy")
+    plt.title("Stored vs. Attractor Energies for Z-, X-, and Y-Patterns")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
 # Example usage
 network_size = 100  # Number of neurons in the Hopfield network
-max_patterns = 14   # Maximum number of pattern sets to test
-trials = 10         # Number of trials per pattern set
+max_patterns = 5     # Maximum number of pattern sets to test
+trials = 1          # Number of trials per pattern set
 noise_level = 0.2   # Noise level in patterns
 max_steps = 10000   # Max update steps for recall
 
