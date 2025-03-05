@@ -14,10 +14,8 @@ class HopfieldNetwork:
         Trains network according to the Hebbian Learning rule.
         :param patterns: array of binary patterns (+1, -1) with shape (num_patterns, pattern_size).
         """
-        num_patterns, pattern_size = patterns.shape
-
-        # Compute weights using matrix multiplication for all patterns
-        self.weights = np.dot(patterns.T, patterns) / num_patterns
+        # Compute weights using matrix multiplication for all patterns and normalize by the number of neurons 
+        self.weights = np.dot(patterns.T, patterns) / self.size
 
         # Zero out the diagonal to avoid self-connections
         np.fill_diagonal(self.weights, 0)

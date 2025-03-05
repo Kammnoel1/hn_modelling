@@ -20,6 +20,7 @@ def generate_patterns(p, network_size):
     x_patterns = [initialize_binary_array(network_size) for _ in range(p)]
     y_patterns = [initialize_binary_array(network_size) for _ in range(p)]
     z_patterns = [np.sign(x + y + (x * y)) for x, y in zip(x_patterns, y_patterns)]
+    # z_patterns = [initialize_binary_array(network_size) for _ in range(p)]
     return x_patterns, y_patterns, z_patterns
 
 def calculate_energy(pattern, weights):
@@ -37,62 +38,46 @@ def test_recall(patterns, net, noise_level, max_steps):
 
 def compute_average_overlap(x_patterns, y_patterns, z_patterns):
     """Compute the average overlap between x, y, and z patterns."""
-    p = len(x_patterns)
     overlap_xy = np.mean([np.sum(x == y) for x, y in zip(x_patterns, y_patterns)])
     overlap_xz = np.mean([np.sum(x == z) for x, z in zip(x_patterns, z_patterns)])
     overlap_yz = np.mean([np.sum(y == z) for y, z in zip(y_patterns, z_patterns)])
     return overlap_xy, overlap_xz, overlap_yz
 
-def determine_memory_capacity(network_size, max_patterns, trials, noise_level, max_steps):
+def determine_memory_capacity(network_size, max_patterns, noise_level, max_steps):
     """
-    Determine the memory capacity of a Hopfield network and record success rates and energy values.
+    Determine the memory capacity of a Hopfield network.
+    For each pattern set, compute the success rate, energy values, and overlaps.
+    (No trials loop; each value is computed from a single trial.)
     """
     success_rates = {}
     energy_dict = {"x": [], "y": [], "z": []}
     overlap_dict = {"xy": [], "xz": [], "yz": []}
 
     for p in range(1, max_patterns + 1):
-        success_count = 0
-        total_energy_x = total_energy_y = total_energy_z = 0
-        total_overlap_xy = total_overlap_xz = total_overlap_yz = 0
+        # Generate patterns and compute overlaps for this single trial
+        x_patterns, y_patterns, z_patterns = generate_patterns(p, network_size)
+        overlap_xy, overlap_xz, overlap_yz = compute_average_overlap(x_patterns, y_patterns, z_patterns)
+        overlap_dict["xy"].append(overlap_xy)
+        overlap_dict["xz"].append(overlap_xz)
+        overlap_dict["yz"].append(overlap_yz)
 
-        for _ in range(trials):
-            x_patterns, y_patterns, z_patterns = generate_patterns(p, network_size)
-            overlap_xy, overlap_xz, overlap_yz = compute_average_overlap(x_patterns, y_patterns, z_patterns)
+        # Stack all patterns for training
+        all_patterns = np.vstack(x_patterns + y_patterns + z_patterns)
 
-            total_overlap_xy += overlap_xy
-            total_overlap_xz += overlap_xz
-            total_overlap_yz += overlap_yz
+        # Train the Hopfield network
+        net = HopfieldNetwork(size=network_size)
+        net.train(all_patterns)
 
-            # Stack all patterns for training
-            all_patterns = np.vstack(x_patterns + y_patterns + z_patterns)
+        # Plot energies for inscribed vs. attractor patterns
+        plot_inscribed_vs_attractor_energies(z_patterns, x_patterns, y_patterns, net, noise_level, max_steps)
 
-            # Train the Hopfield network
-            net = HopfieldNetwork(size=network_size)
-            net.train(all_patterns)
+        # Compute average energy values for each pattern type
+        energy_dict["x"].append(np.mean([calculate_energy(x, net.weights) for x in x_patterns]))
+        energy_dict["y"].append(np.mean([calculate_energy(y, net.weights) for y in y_patterns]))
+        energy_dict["z"].append(np.mean([calculate_energy(z, net.weights) for z in z_patterns]))
 
-            # Plot the energies of inscribed vs. attractor for z-patterns (just one example)
-            plot_inscribed_vs_attractor_energies(z_patterns, x_patterns, y_patterns, net, noise_level, max_steps)
-
-
-            # Accumulate energy values
-            total_energy_x += sum(calculate_energy(x, net.weights) for x in x_patterns)
-            total_energy_y += sum(calculate_energy(y, net.weights) for y in y_patterns)
-            total_energy_z += sum(calculate_energy(z, net.weights) for z in z_patterns)
-
-            if test_recall(z_patterns, net, noise_level, max_steps):
-                success_count += 1
-
-        # Compute averages
-        success_rates[p] = success_count / trials
-        num_patterns_total = 3 * p * trials
-        energy_dict["x"].append(total_energy_x / num_patterns_total)
-        energy_dict["y"].append(total_energy_y / num_patterns_total)
-        energy_dict["z"].append(total_energy_z / num_patterns_total)
-        overlap_dict["xy"].append(total_overlap_xy / trials)
-        overlap_dict["xz"].append(total_overlap_xz / trials)
-        overlap_dict["yz"].append(total_overlap_yz / trials)
-
+        # Record success rate (1.0 for success, 0.0 for failure)
+        success_rates[p] = 1.0 if test_recall(z_patterns, net, noise_level, max_steps) else 0.0
 
     return success_rates, energy_dict, overlap_dict
 
@@ -108,20 +93,23 @@ def plot_memory_capacity(success_rates, path="plots/memory_capacity.png"):
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_energy_values(energy_dict, max_patterns, path="plots/energy_values.png"): 
-    """Plot and save the energy values for different pattern types."""
+def plot_energy_values(energy_dict, max_patterns, path="plots/energy_values.png"):
+    """Plot and save the energy values for different pattern types as discrete crosses."""
     plt.figure(figsize=(10, 6))
+    colors = {"x": "blue", "y": "orange", "z": "red"}
     for label, y_values in energy_dict.items():
-        plt.plot(range(1, max_patterns + 1), y_values, label=label)
+        pattern_indices = list(range(1, max_patterns + 1))
+        plt.scatter(pattern_indices, y_values, label=label, marker='x', color=colors.get(label, "black"))
     plt.xlabel("Number of Pattern Sets (p)")
     plt.ylabel("Energy Values")
-    plt.title("Energy values for patterns")
+    plt.title("Energy Values for Patterns")
     plt.legend()
     plt.grid(True)
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
 
 def plot_overlaps(overlap_dict, max_patterns, path="plots/overlaps.png"): 
+    """Plot and save the overlaps between patterns."""
     plt.figure(figsize=(10, 6))
     for label, y_values in overlap_dict.items():
         plt.plot(range(1, max_patterns + 1), y_values, label=label)
@@ -133,86 +121,87 @@ def plot_overlaps(overlap_dict, max_patterns, path="plots/overlaps.png"):
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_inscribed_vs_attractor_energies(z_patterns, x_patterns, y_patterns, net, noise_level, max_steps, path="plots/energy_per_pattern.png"):
+def process_pattern(pattern, net, noise_level, max_steps):
     """
-    For each pattern triplet (Z, X, Y):
-      - Compute the energy of the stored (inscribed) pattern (blue dot for each type).
-      - Add noise and recall it, then compute the energy of the attractor (red cross for each type).
-      - Plot all energies on the same x-axis index with no lines connecting them.
+    Compute the stored energy and attractor energy for a given pattern.
     """
-    # Initialize lists for stored and attractor energies for each pattern type
-    energies_stored_z = []
-    energies_attractor_z = []
-    energies_stored_x = []
-    energies_attractor_x = []
-    energies_stored_y = []
-    energies_attractor_y = []
+    E_stored = calculate_energy(pattern, net.weights)
+    noisy_pattern = add_noise_to_pattern(pattern, noise_level)
+    recalled_pattern, _ = net.recall(noisy_pattern, pattern, max_steps)
+    E_attractor = calculate_energy(recalled_pattern, net.weights)
+    return E_stored, E_attractor
 
-    # Discrete x-axis indices for each pattern triplet
-    pattern_indices = range(len(z_patterns))
+def plot_inscribed_vs_attractor_energies(z_patterns, x_patterns, y_patterns, net, noise_level, max_steps, 
+                                           path="plots/energy_component_overlap_2.png", x_max=6, y_min=-80, y_max=-35):
+    """
+    For each pattern set, where each set consists of 3 patterns (X, Y, Z):
+      - Compute the energy of the stored (inscribed) pattern.
+      - Add noise and recall it, then compute the energy of the attractor.
+      - Plot stored and attractor energies for all three pattern types on a global index.
+      
+    Global indexing:
+      For each set i (starting from 0), assign:
+         X-pattern: index = 3*i + 1
+         Y-pattern: index = 3*i + 2
+         Z-pattern: index = 3*i + 3
+         
+    The x-axis will always span from 1 to x_max (default=6) and the y-axis is fixed from y_min to y_max.
+    """
+    p = len(z_patterns)  # number of sets
+    # Lists for energies
+    stored_energies = {"x": [], "y": [], "z": []}
+    attractor_energies = {"x": [], "y": [], "z": []}
 
-    for i in pattern_indices:
-        # Get each pattern from the triplet
-        stored_z = z_patterns[i]
-        stored_x = x_patterns[i]
-        stored_y = y_patterns[i]
+    # Global indices for each pattern type
+    indices = {"x": [3*i + 1 for i in range(p)],
+               "y": [3*i + 2 for i in range(p)],
+               "z": [3*i + 3 for i in range(p)]}
 
-        # Compute energy of the inscribed (stored) patterns
-        E_stored_z = calculate_energy(stored_z, net.weights)
-        E_stored_x = calculate_energy(stored_x, net.weights)
-        E_stored_y = calculate_energy(stored_y, net.weights)
+    # Compute energies for each pattern in each set
+    for i in range(p):
+        E_stored_x, E_attractor_x = process_pattern(x_patterns[i], net, noise_level, max_steps)
+        E_stored_y, E_attractor_y = process_pattern(y_patterns[i], net, noise_level, max_steps)
+        E_stored_z, E_attractor_z = process_pattern(z_patterns[i], net, noise_level, max_steps)
 
-        # Add noise and recall each pattern
-        noisy_z = add_noise_to_pattern(stored_z, noise_level)
-        recalled_z, _ = net.recall(noisy_z, stored_z, max_steps)
-        noisy_x = add_noise_to_pattern(stored_x, noise_level)
-        recalled_x, _ = net.recall(noisy_x, stored_x, max_steps)
-        noisy_y = add_noise_to_pattern(stored_y, noise_level)
-        recalled_y, _ = net.recall(noisy_y, stored_y, max_steps)
+        stored_energies["x"].append(E_stored_x)
+        stored_energies["y"].append(E_stored_y)
+        stored_energies["z"].append(E_stored_z)
 
-        # Compute energy of the attractors
-        E_attractor_z = calculate_energy(recalled_z, net.weights)
-        E_attractor_x = calculate_energy(recalled_x, net.weights)
-        E_attractor_y = calculate_energy(recalled_y, net.weights)
+        attractor_energies["x"].append(E_attractor_x)
+        attractor_energies["y"].append(E_attractor_y)
+        attractor_energies["z"].append(E_attractor_z)
 
-        # Append the energies to the lists
-        energies_stored_z.append(E_stored_z)
-        energies_attractor_z.append(E_attractor_z)
-        energies_stored_x.append(E_stored_x)
-        energies_attractor_x.append(E_attractor_x)
-        energies_stored_y.append(E_stored_y)
-        energies_attractor_y.append(E_attractor_y)
-
-    # Create the plot
     plt.figure(figsize=(10, 6))
+    # Plot stored energies (dots)
+    plt.scatter(indices["x"], stored_energies["x"], color='blue', marker='o', label='Stored X-Patterns')
+    plt.scatter(indices["y"], stored_energies["y"], color='orange', marker='o', label='Stored Y-Patterns')
+    plt.scatter(indices["z"], stored_energies["z"], color='red', marker='o', label='Stored Z-Patterns')
 
-    # Plot stored (inscribed) energies for each pattern type (blue dots)
-    plt.scatter(pattern_indices, energies_stored_z, color='blue', marker='o', label='Stored Z-Patterns')
-    plt.scatter(pattern_indices, energies_stored_x, color='cyan', marker='o', label='Stored X-Patterns')
-    plt.scatter(pattern_indices, energies_stored_y, color='magenta', marker='o', label='Stored Y-Patterns')
+    # Plot attractor energies (crosses)
+    plt.scatter(indices["x"], attractor_energies["x"], color='blue', marker='x', s=100, label='Attractor X-Patterns')
+    plt.scatter(indices["y"], attractor_energies["y"], color='orange', marker='x', s=100, label='Attractor Y-Patterns')
+    plt.scatter(indices["z"], attractor_energies["z"], color='red', marker='x', s=100, label='Attractor Z-Patterns')
 
-    # Plot attractor energies for each pattern type (red crosses)
-    plt.scatter(pattern_indices, energies_attractor_z, color='red', marker='x', label='Attractor Z-Patterns')
-    plt.scatter(pattern_indices, energies_attractor_x, color='orange', marker='x', label='Attractor X-Patterns')
-    plt.scatter(pattern_indices, energies_attractor_y, color='green', marker='x', label='Attractor Y-Patterns')
-
-    plt.xlabel("Pattern Index")
+    plt.xlabel("Global Pattern Index")
     plt.ylabel("Energy")
-    plt.title("Stored vs. Attractor Energies for Z-, X-, and Y-Patterns")
+    plt.title("Stored vs. Attractor Energies for Componenet Overlap Patterns")
     plt.legend()
     plt.grid(True)
+
+    # Set consistent axes across all plots
+    plt.xlim(0.5, x_max + 0.5)
+    plt.ylim(y_min, y_max)
+    
     plt.savefig(path, dpi=300, bbox_inches='tight')
     plt.close()
 
-
 # Example usage
-network_size = 100  # Number of neurons in the Hopfield network
+network_size = 100   # Number of neurons in the Hopfield network
 max_patterns = 5     # Maximum number of pattern sets to test
-trials = 1          # Number of trials per pattern set
-noise_level = 0.2   # Noise level in patterns
-max_steps = 10000   # Max update steps for recall
+noise_level = 0.2    # Noise level in patterns
+max_steps = 10000    # Maximum update steps for recall
 
-success_rates, energy_dict, overlap_dict = determine_memory_capacity(network_size, max_patterns, trials, noise_level, max_steps)
+success_rates, energy_dict, overlap_dict = determine_memory_capacity(network_size, max_patterns, noise_level, max_steps)
 plot_memory_capacity(success_rates)
 plot_energy_values(energy_dict, max_patterns)
 plot_overlaps(overlap_dict, max_patterns)
