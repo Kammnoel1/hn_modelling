@@ -43,6 +43,10 @@ class HopfieldNetwork:
         # Return the result if max steps are reached
         return output, steps
 
+def calculate_energy(pattern, weights):
+    """Compute the Hopfield network energy for a given pattern."""
+    return -0.5 * pattern.T @ (weights @ pattern) 
+
 
 
 
