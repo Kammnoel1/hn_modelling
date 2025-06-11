@@ -1,3 +1,4 @@
 # Ignore temporary files or caches 
 *.pyc
 __pycache__/
+/figs/
