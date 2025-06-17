@@ -1,9 +1,8 @@
 import matplotlib.pyplot as plt
-from evaluation import compute_stored_and_attractor
 
 
 def plot_energy_values(
-    energy_dict: dict[str, list[float]],
+    energy_dict: dict[str, dict[str, list[float]]],
     max_patterns: int,
     path: str,
     column: str = "double",
@@ -12,29 +11,38 @@ def plot_energy_values(
     width_mm = 85 if column == "single" else 180
     width_in = width_mm * mm_to_in
     height_in = width_in * 0.7
-    fig, ax = plt.subplots(figsize=(width_in, height_in))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(width_in, height_in))
 
-    # Define mapping from internal keys to display names & colors
-    label_map = {
-        "x": ("Verbal Encoding", "blue"),
-        "y": ("Gesture Encoding", "orange"),
-        "z": ("Gesture-Enhanced Encoding", "red"),
-    }
-
-    marker_kw = dict(marker="x", linestyle="none", markersize=6, markeredgewidth=1.5)
-
+    # Define different markers for each pattern
+    markers = ["o", "s", "^"]
     x_range = range(1, max_patterns + 1)
-    for key, y_vals in energy_dict.items():
-        label, color = label_map.get(key, (key, "black"))
-        ax.plot(x_range, y_vals, label=label, color=color, **marker_kw)
 
-    ax.set_xticks(range(1, max_patterns + 1))
-    ax.set_xlabel("Number of pattern sets $p$", fontsize=9)
-    ax.set_ylabel("Energy", fontsize=9)
-    ax.set_title("Energy across encoding conditions", fontsize=10, pad=6)
-    ax.tick_params(axis="both", which="major", labelsize=8, direction="out")
-    ax.grid(True, linewidth=0.5, alpha=0.4)
-    ax.legend(fontsize=8, frameon=False)
+    # Plot overlap=True condition
+    overlap_true_energies = energy_dict['overlap_true']
+    for i, (key, y_vals) in enumerate(overlap_true_energies.items()):
+        marker = markers[i % len(markers)]
+        ax1.plot(x_range, y_vals, marker=marker, linestyle="none", markersize=6, 
+                markeredgewidth=1.5, color="black", markerfacecolor="none")
+    ax1.set_xlabel("Pattern Set Index", fontsize=9)
+    ax1.set_ylabel("Energy", fontsize=9)
+    ax1.set_xticks(range(1, max_patterns + 1))
+    ax1.set_ylim(-90, -40)
+    ax1.tick_params(axis="both", which="major", labelsize=8, direction="out")
+    ax1.grid(True, linewidth=0.5, alpha=0.4)
+
+    # Plot overlap=False condition
+    overlap_false_energies = energy_dict['overlap_false']
+    for i, (key, y_vals) in enumerate(overlap_false_energies.items()):
+        marker = markers[i % len(markers)]
+        ax2.plot(x_range, y_vals, marker=marker, linestyle="none", markersize=6, 
+                markeredgewidth=1.5, color="black", markerfacecolor="none")
+    ax2.set_xlabel("Pattern Set Index", fontsize=9)
+    ax2.set_ylabel("Energy", fontsize=9)
+    ax2.set_xticks(range(1, max_patterns + 1))
+    ax2.set_ylim(-90, -40)
+    ax2.tick_params(axis="both", which="major", labelsize=8, direction="out")
+    ax2.grid(True, linewidth=0.5, alpha=0.4)
+
     fig.tight_layout()
 
     raster_ext = (".png", ".tif", ".tiff", ".jpg", ".jpeg")
@@ -42,100 +50,118 @@ def plot_energy_values(
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
 
-def plot_inscribed_vs_attractor_energies(
-    z_patterns, x_patterns, y_patterns, net, noise_level, max_steps,
-    path="plots/Figure_2a.pdf",
-    x_max=6, y_min=-100, y_max=-35,
-    column="double"  # 'single' or 'double'
+def plot_stored_vs_attractor_energies(
+    stored_energy_dict: dict[str, dict[str, list[float]]],
+    attractor_energy_dict: dict[str, dict[str, list[float]]],
+    max_patterns: int,
+    path: str,
+    column: str = "double",
 ):
     """
     Publication-ready scatter plot: Stored vs Attractor energies.
     
     Parameters
     ----------
-    z_patterns, x_patterns, y_patterns : list of patterns
-        Each list contains the patterns per set.
-    net : network object
-        Must have a process_pattern function defined.
-    noise_level : float
-        Noise level for input perturbation.
-    max_steps : int
-        Max steps for attractor dynamics.
+    stored_energy_dict : dict
+        Dictionary with overlap conditions as keys, each containing pattern energies.
+    attractor_energy_dict : dict
+        Dictionary with overlap conditions as keys, each containing attractor energies.
+    max_patterns : int
+        Maximum number of pattern sets.
     path : str
         Output file path (pdf preferred; tiff/jpg for raster).
-    x_max, y_min, y_max : float
-        Axis limits.
     column : {'single', 'double'}
         Target figure width for journal specs.
     """
     # ------ figure geometry ---------
     mm_to_in = 0.03937
     width_mm = 85 if column == "single" else 180
-    width_in  = width_mm * mm_to_in
+    width_in = width_mm * mm_to_in
     height_in = width_in * 0.7
-    fig, ax   = plt.subplots(figsize=(width_in, height_in))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(width_in, height_in))
 
-    p = len(z_patterns)
-    stored_energies    = {"Verbal": [], "Gesture": [], "Gesture-Enhanced": []}
-    attractor_energies = {"Verbal": [], "Gesture": [], "Gesture-Enhanced": []}
-    indices = {
-        "Verbal": [3 * i + 1 for i in range(p)],
-        "Gesture": [3 * i + 2 for i in range(p)],
-        "Gesture-Enhanced": [3 * i + 3 for i in range(p)]
-    }
+    # Define different markers for each pattern type
+    markers = ["o", "s", "^"]  # circle, square, triangle for x, y, z patterns
+    pattern_keys = ['x', 'y', 'z']
+    
+    # Total number of individual patterns = 3 * max_patterns
+    total_patterns = 3 * max_patterns
 
-    # ------ compute energies ---------
-    for i in range(p):
-        E_stored_x, E_attractor_x = compute_stored_and_attractor(x_patterns[i], net, noise_level, max_steps)
-        E_stored_y, E_attractor_y = compute_stored_and_attractor(y_patterns[i], net, noise_level, max_steps)
-        E_stored_z, E_attractor_z = compute_stored_and_attractor(z_patterns[i], net, noise_level, max_steps)
+    # Plot overlap=True condition
+    overlap_true_stored = stored_energy_dict['overlap_true']
+    overlap_true_attractor = attractor_energy_dict['overlap_true']
+    
+    # Create x-axis positions for all individual patterns in correct order
+    pattern_indices = []
+    stored_energies_flat = []
+    attractor_energies_flat = []
+    pattern_types = []
+    
+    # Order: x1, y1, z1, x2, y2, z2, x3, y3, z3, ...
+    for j in range(max_patterns):  # For each pattern set
+        for i, key in enumerate(pattern_keys):  # For each pattern type (x, y, z)
+            pattern_index = j * 3 + i + 1  # Pattern index from 1 to total_patterns
+            pattern_indices.append(pattern_index)
+            stored_energies_flat.append(overlap_true_stored[key][j])
+            attractor_energies_flat.append(overlap_true_attractor[key][j])
+            pattern_types.append(i)  # 0, 1, 2 for x, y, z
+    
+    # Plot stored patterns: hollow markers (circumference only)
+    for i, (pattern_idx, stored_energy, pattern_type) in enumerate(zip(pattern_indices, stored_energies_flat, pattern_types)):
+        marker = markers[pattern_type]
+        ax1.plot(pattern_idx, stored_energy, marker=marker, linestyle="none", markersize=6, 
+                markeredgewidth=1.5, color="black", markerfacecolor="none")
+    
+    # Plot attractor patterns: solid markers
+    for i, (pattern_idx, attractor_energy, pattern_type) in enumerate(zip(pattern_indices, attractor_energies_flat, pattern_types)):
+        marker = markers[pattern_type]
+        ax1.plot(pattern_idx, attractor_energy, marker=marker, linestyle="none", markersize=6, 
+                markeredgewidth=1.5, color="black", markerfacecolor="black")
+    
+    ax1.set_xlabel("Pattern Index", fontsize=9)
+    ax1.set_ylabel("Energy", fontsize=9)
+    ax1.set_xticks(range(1, total_patterns + 1))
+    ax1.set_ylim(-90, -40)
+    ax1.tick_params(axis="both", which="major", labelsize=8, direction="out")
+    ax1.grid(True, linewidth=0.5, alpha=0.4)
 
-        stored_energies["Verbal"].append(E_stored_x)
-        stored_energies["Gesture"].append(E_stored_y)
-        stored_energies["Gesture-Enhanced"].append(E_stored_z)
-
-        attractor_energies["Verbal"].append(E_attractor_x)
-        attractor_energies["Gesture"].append(E_attractor_y)
-        attractor_energies["Gesture-Enhanced"].append(E_attractor_z)
-
-    # ------ plot styles ---------
-    palette = {
-        "Verbal": "blue",
-        "Gesture": "orange",
-        "Gesture-Enhanced": "red"
-    }
-
-    # Stored: solid circles
-    for key, label in zip(["Verbal", "Gesture", "Gesture-Enhanced"], ["X", "Y", "Z"]):
-        ax.plot(
-            indices[key], stored_energies[key],
-            linestyle="none", marker="o", markersize=5, markeredgewidth=0.8,
-            color=palette[key], label=f"Stored – {label}"
-        )
-
-    # Attractor: crosses
-    for key, label in zip(["Verbal", "Gesture", "Gesture-Enhanced"], ["X", "Y", "Z"]):
-        ax.plot(
-            indices[key], attractor_energies[key],
-            linestyle="none", marker="x", markersize=6, markeredgewidth=1.2,
-            color=palette[key], label=f"Attractor – {label}"
-        )
-
-    # ------ axis & labels ---------
-    ax.set_xlabel("Pattern Index", fontsize=9)
-    ax.set_ylabel("Energy", fontsize=9)
-    ax.set_title("Stored vs. Attractor Energies", fontsize=10, pad=6)
-
-    ax.set_xlim(0.5, x_max + 0.5)
-    ax.set_ylim(y_min, y_max)
-
-    ax.tick_params(axis="both", which="major", labelsize=8, direction="out")
-    ax.grid(True, linewidth=0.5, alpha=0.4)
-
-    # De-duplicate legend entries
-    handles, labels = ax.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    ax.legend(by_label.values(), by_label.keys(), fontsize=8, frameon=False)
+    # Plot overlap=False condition
+    overlap_false_stored = stored_energy_dict['overlap_false']
+    overlap_false_attractor = attractor_energy_dict['overlap_false']
+    
+    # Reset for overlap=False condition
+    pattern_indices = []
+    stored_energies_flat = []
+    attractor_energies_flat = []
+    pattern_types = []
+    
+    # Same ordering: x1, y1, z1, x2, y2, z2, x3, y3, z3, ...
+    for j in range(max_patterns):  # For each pattern set
+        for i, key in enumerate(pattern_keys):  # For each pattern type (x, y, z)
+            pattern_index = j * 3 + i + 1
+            pattern_indices.append(pattern_index)
+            stored_energies_flat.append(overlap_false_stored[key][j])
+            attractor_energies_flat.append(overlap_false_attractor[key][j])
+            pattern_types.append(i)
+    
+    # Plot stored patterns: hollow markers (circumference only)
+    for i, (pattern_idx, stored_energy, pattern_type) in enumerate(zip(pattern_indices, stored_energies_flat, pattern_types)):
+        marker = markers[pattern_type]
+        ax2.plot(pattern_idx, stored_energy, marker=marker, linestyle="none", markersize=6, 
+                markeredgewidth=1.5, color="black", markerfacecolor="none")
+    
+    # Plot attractor patterns: solid markers
+    for i, (pattern_idx, attractor_energy, pattern_type) in enumerate(zip(pattern_indices, attractor_energies_flat, pattern_types)):
+        marker = markers[pattern_type]
+        ax2.plot(pattern_idx, attractor_energy, marker=marker, linestyle="none", markersize=6, 
+                markeredgewidth=1.5, color="black", markerfacecolor="black")
+    
+    ax2.set_xlabel("Pattern Index", fontsize=9)
+    ax2.set_ylabel("Energy", fontsize=9)
+    ax2.set_xticks(range(1, total_patterns + 1))
+    ax2.set_ylim(-90, -40)
+    ax2.tick_params(axis="both", which="major", labelsize=8, direction="out")
+    ax2.grid(True, linewidth=0.5, alpha=0.4)
 
     fig.tight_layout()
 
